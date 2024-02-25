@@ -1,68 +1,57 @@
+# pip install pyarrow pandas
 import os
 import pandas as pd
 
 
 class PriceMachine():
-
     def __init__(self):
         self.data = []
-        self.result = ''
-        self.name_length = 0
 
-    def load_prices(self, file_path=''):
-        '''
-            Сканирует указанный каталог. Ищет файлы со словом price в названии.
-            В файле ищет столбцы с названием товара, ценой и весом.
-            Допустимые названия для столбца с товаром:
-                товар
-                название
-                наименование
-                продукт
-                
-            Допустимые названия для столбца с ценой:
-                розница
-                цена
-                
-            Допустимые названия для столбца с весом (в кг.)
-                вес
-                масса
-                фасовка
-        '''
+    def load_prices(self, directory='.'):
+        """Загружает данные из всех прайс-листов в указанной папке."""
         files_with_price = []
-        for root, dirs, files in os.walk(file_path):
+        for root, dirs, files in os.walk(directory):
             for file in files:
                 if 'price' in file.lower():
                     files_with_price.append(os.path.join(root, file))
 
         for file in files_with_price:
+            file_name = os.path.basename(file)
             try:
                 csv_data = pd.read_csv(file)
-                title, price, weigth = None
+                product_col, price_col, weight_col = None, None, None
                 for col in csv_data.columns:
                     if col.lower() in ['товар', 'название', 'наименование', 'продукт']:
-                        # print(col)
-                        title = col
+                        product_col = col
                     elif col.lower() in ['розница', 'цена']:
-                        price = col
-                        # print(col)
+                        price_col = col
                     elif col.lower() in ['вес', 'масса', 'фасовка']:
-                        weigth = col
-                        # print(col)
-                if title and price and weigth:
-                    print(title, price, weigth)
-                    data = csv_data[[title, price, weigth]].values.tolist()
-                    self.data.extend(data)
+                        weight_col = col
+                if all([product_col, price_col, weight_col]):
+                    csv_data[price_col] = csv_data[price_col].astype(int)
+                    csv_data[weight_col] = csv_data[weight_col].astype(int)
+                    csv_data['price_per_kg'] = round(csv_data[price_col] / csv_data[weight_col], 2)
+                    csv_data['file'] = file_name
+                    data = csv_data[[product_col, price_col, weight_col, 'price_per_kg', 'file']]
+                    self.data.extend(data.values.tolist())
             except Exception as e:
-                print(f"Error processing file {file_path}: {str(e)}")
+                print(f"Ошибка чтения файла {file}: {str(e)}")
 
-    def _search_product_price_weight(self, headers):
-        '''
-            Возвращает номера столбцов
-        '''
+        self.data = sorted(self.data, key=lambda x: x[3])
 
-        pass
+    def find_text(self, fragment):
+        """Ищет товар по фрагменту названия и возвращает результаты с сортировкой по цене за килограмм."""
+        results = []
+        for item in self.data:
+            if fragment.lower() in item[0].lower():
+                # print(item)/
+                results.append(item)
+        sorted_results = sorted(results, key=lambda x: x[3])
+        return sorted_results
+
 
     def export_to_html(self, fname='output.html'):
+        """ Создавем html из собранных данных """
         result = '''
         <!DOCTYPE html>
         <html>
@@ -76,27 +65,35 @@ class PriceMachine():
                     <th>Название</th>
                     <th>Цена</th>
                     <th>Фасовка</th>
-                    <th>Файл</th>
                     <th>Цена за кг.</th>
+                    <th>Файл</th>
                 </tr>
         '''
+        for i, item in enumerate(self.data, start=1):
+            tr = '''
+            <tr>
+                <td> {} </td>
+                <td> {} </td>
+                <td> {} </td>
+                <td> {} </td>
+                <td> {} </td>
+                <td> {} </td>
+            </tr>
+            '''.format(i, *item)
+            result += tr
 
-    def find_text(self, text):
-        """Ищет товар по фрагменту названия и возвращает результаты с сортировкой по цене за килограмм."""
-        results = []
-        for item in self.data:
-            if fragment.lower() in item[0].lower():
-                results.append(item)
-        sorted_results = sorted(results, key=lambda x: x[3])  # Сортировка по цене за килограмм
-        return sorted_results
+        result += '''
+            </table>
+        </body>
+        </html>
+        '''
 
+        with open(fname, 'w', encoding='utf-8') as f:
+            f.write(result)
 
 pm = PriceMachine()
 pm.load_prices(os.getcwd())
-print(pm.data)
-
-# print('the end')
-# print(pm.export_to_html())
+pm.export_to_html()
 while True:
     fragment = input("Введите фрагмент названия товара для поиска (или 'exit' для выхода): ")
     if fragment.lower() == 'exit':
@@ -106,6 +103,6 @@ while True:
     if results:
         print("Результаты поиска:")
         for idx, result in enumerate(results, start=1):
-            print(f"{idx}. Товар: {result[0]}, Цена: {result[1]}, Вес: {result[2]}, Цена за кг: {result[3]}")
+            print(f"{idx}. Товар: {result[0]}, Цена: {result[1]}, Вес: {result[2]}, Цена за кг: {result[3]}, Файл: {result[4]}")
     else:
         print("Ничего не найдено.")
